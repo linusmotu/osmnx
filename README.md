@@ -5,6 +5,7 @@
 [![Build Status](https://travis-ci.org/gboeing/osmnx.svg?branch=master)](https://travis-ci.org/gboeing/osmnx)
 [![Coverage Status](https://coveralls.io/repos/github/gboeing/osmnx/badge.svg?branch=master)](https://coveralls.io/github/gboeing/osmnx?branch=master)
 
+This fork is specifically for use with the custom [Anomaly detection security](https://github.com/linusmotu/anomaly-detection-security) fork of Mike's [original code](https://github.com/mpwilbur/anomaly-detection-security).
 
 # OSMnx
 

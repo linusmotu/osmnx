@@ -629,7 +629,7 @@ def plot_graph_routes(G, routes, bbox=None, fig_height=6, fig_width=None,
                       route_color='r', route_linewidth=4,
                       route_alpha=0.5, orig_dest_node_alpha=0.5,
                       orig_dest_node_size=100, orig_dest_node_color='r',
-                      orig_dest_point_color='b'):
+                      orig_dest_point_color='b', line_labels=None):
     """
     Plot several routes along a networkx spatial graph.
 
@@ -748,14 +748,20 @@ def plot_graph_routes(G, routes, bbox=None, fig_height=6, fig_width=None,
                c=orig_dest_node_color, alpha=orig_dest_node_alpha, edgecolor=node_edgecolor, zorder=4)
 
     # plot the routes lines
+    route_colors = ['r', 'b']
     lines = []
-    for route in routes:
-        lines.extend(node_list_to_coordinate_lines(G, route, use_geom))
+    for idx, route in enumerate(routes):
+        lines = node_list_to_coordinate_lines(G, route, use_geom)
+        lc = LineCollection(lines, colors=route_colors[idx], linewidths=route_linewidth, alpha=route_alpha, zorder=3)
+        lc.set_label(line_labels[idx])
+        ax.add_collection(lc)
+        # lines.extend(node_list_to_coordinate_lines(G, route, use_geom))
 
     # add the lines to the axis as a linecollection
-    lc = LineCollection(lines, colors=route_color, linewidths=route_linewidth, alpha=route_alpha, zorder=3)
-    ax.add_collection(lc)
 
+    ax.legend()
+
+    ax.set_title("Different Routes")
     # save and show the figure as specified
     fig, ax = save_and_show(fig, ax, save, show, close, filename, file_format, dpi, axis_off)
     return fig, ax
