@@ -26,6 +26,8 @@ from .save_load import graph_to_gdfs
 from .simplify import simplify_graph
 from .utils import log
 
+import random
+import networkx as nx
 
 # folium is an optional dependency for the folium plotting functions
 try:
@@ -280,6 +282,184 @@ def save_and_show(fig, ax, save, show, close, filename, file_format, dpi, axis_o
 
     return fig, ax
 
+def jp_talusan():
+  print("Sanity check...")
+
+def get_spaced_colors(n):
+    max_value = 16581375 #255**3
+    interval = int(max_value / n)
+    colors = [hex(I)[2:].zfill(6) for I in range(0, max_value, interval)]
+    output = [(int(i[:2], 16), int(i[2:4], 16), int(i[4:], 16)) for i in colors]
+    
+    for i, color in enumerate(output):
+        if color == (0, 0, 0):
+            output[i] = (0, 255, 0)
+        
+    return output
+
+def convert_to_hex(red, green, blue) :
+#     print('#%02x%02x%02x' % (red, green, blue))
+    return '#%02x%02x%02x' % (red, green, blue)
+    
+def get_color_for_tmc_id(tmc_id, rsu_hash, color_dict):
+    counter = 0
+    for k, v in rsu_hash.items():
+        if tmc_id in v:
+            # print("Found it in: {}-{}".format(k, counter))
+            # print("Color is {}".format(color_dict[counter]))
+            return color_dict[counter]
+            break
+
+        counter += 1
+
+def plot_graph_by_clusters(G, bbox=None, fig_height=6, fig_width=None, margin=0.02,
+               axis_off=True, equal_aspect=False, bgcolor='w', show=True,
+               save=False, close=True, file_format='png', filename='temp',
+               dpi=300, annotate=False, node_color='#66ccff', node_size=15,
+               node_alpha=1, node_edgecolor='none', node_zorder=1,
+               edge_color='#999999', edge_linewidth=1, edge_alpha=1,
+               use_geom=True, rsu_hash=None, network_connections=None,
+               rsu_locations=None, node_label_size=12, node_label_color='w',
+               color_dict=None):
+    if color_dict is None:
+        z = network_connections
+        G = nx.configuration_model(z)
+        d = nx.coloring.greedy_color(G, strategy='largest_first')
+
+        number_of_colors = len(sorted(set([i for i in d.values()])))
+        colors = get_spaced_colors(number_of_colors)
+        hex_strings = [convert_to_hex(c[0], c[1], c[2]) for c in colors]
+
+        new_color_hex_dict = {}
+        for k, v in d.items():
+            hex_string = hex_strings[v]
+            new_color_hex_dict[k] = hex_string
+
+        color_dict = new_color_hex_dict
+    # print(colors)
+    # print("Color_dict:{}".format(color_dict))
+
+    log('Begin plotting the graph...')
+    node_Xs = [float(x) for _, x in G.nodes(data='x')]
+    node_Ys = [float(y) for _, y in G.nodes(data='y')]
+
+    # get north, south, east, west values either from bbox parameter or from the
+    # spatial extent of the edges' geometries
+    if bbox is None:
+        edges = graph_to_gdfs(G, nodes=False, fill_edge_geometry=True)
+        west, south, east, north = edges.total_bounds
+    else:
+        north, south, east, west = bbox
+
+    # if caller did not pass in a fig_width, calculate it proportionately from
+    # the fig_height and bounding box aspect ratio
+    bbox_aspect_ratio = (north-south)/(east-west)
+    if fig_width is None:
+        fig_width = fig_height / bbox_aspect_ratio
+
+    # create the figure and axis
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height), facecolor=bgcolor)
+    ax.set_facecolor(bgcolor)
+
+    # draw the edges as lines from node to node
+    # colors = ['red', 'blue', 'green']
+    start_time = time.time()
+    lines = []
+    for u, v, data in G.edges(keys=False, data=True):
+        if 'geometry' in data and use_geom:
+            # if it has a geometry attribute (a list of line segments), add them
+            # to the list of lines to plot
+            xs, ys = data['geometry'].xy
+            lines.append(list(zip(xs, ys)))
+        else:
+            # if it doesn't have a geometry attribute, the edge is a straight
+            # line from node to node
+            x1 = G.nodes[u]['x']
+            y1 = G.nodes[u]['y']
+            x2 = G.nodes[v]['x']
+            y2 = G.nodes[v]['y']
+            line = [(x1, y1), (x2, y2)]
+            lines.append(line)
+
+        # debug
+        tmc_id = data['tmc_id']
+        # print("plot_graph_by_clusters tmc_id of edge:{}".format(tmc_id))
+
+
+    # debug
+        # print("Lines len:{}".format(len(lines)))
+
+        # add the lines to the axis as a linecollection
+        # find which RSU tmc_id is part of
+        node_color = get_color_for_tmc_id(tmc_id, rsu_hash, color_dict)
+        # print("TMC_id:{}, color:{}".format(tmc_id, node_color))
+        lc = LineCollection(lines, colors=node_color, linewidths=edge_linewidth, alpha=edge_alpha, zorder=2)
+        ax.add_collection(lc)
+        lines = []
+        # break1
+
+
+    log('Drew the graph edges in {:,.2f} seconds'.format(time.time()-start_time))
+
+    # scatter plot the nodes
+    # ax.scatter(node_Xs, node_Ys, s=node_size, c=node_color, alpha=node_alpha, edgecolor=node_edgecolor, zorder=node_zorder)
+    if rsu_locations is not None:
+        x = [point.x for point in rsu_locations]
+        y = [point.y for point in rsu_locations]
+        for i, point in enumerate(rsu_locations):
+            node_color = color_dict[i]
+            # print("Nodecolor:{}".format(node_color))
+            ax.scatter(point.x, point.y, s=node_size, c=node_color, alpha=node_alpha, edgecolor=node_edgecolor, zorder=node_zorder)
+
+        n = []
+        [n.append(str(i + 1)) for i in range(len(rsu_locations))]
+
+        for i, txt in enumerate(n):
+        #     print(i)
+            ax.annotate(txt, (x[i], y[i]), size=node_label_size, weight='bold', ha='center', va='center', color=node_label_color)
+
+    # set the extent of the figure
+    margin_ns = (north - south) * margin
+    margin_ew = (east - west) * margin
+    ax.set_ylim((south - margin_ns, north + margin_ns))
+    ax.set_xlim((west - margin_ew, east + margin_ew))
+
+    # configure axis appearance
+    xaxis = ax.get_xaxis()
+    yaxis = ax.get_yaxis()
+
+    xaxis.get_major_formatter().set_useOffset(False)
+    yaxis.get_major_formatter().set_useOffset(False)
+
+    # if axis_off, turn off the axis display set the margins to zero and point
+    # the ticks in so there's no space around the plot
+    if axis_off:
+        ax.axis('off')
+        ax.margins(0)
+        ax.tick_params(which='both', direction='in')
+        xaxis.set_visible(False)
+        yaxis.set_visible(False)
+        fig.canvas.draw()
+
+    if equal_aspect:
+        # make everything square
+        ax.set_aspect('equal')
+        fig.canvas.draw()
+    else:
+        # if the graph is not projected, conform the aspect ratio to not stretch the plot
+        if G.graph['crs'] == settings.default_crs:
+            coslat = np.cos((min(node_Ys) + max(node_Ys)) / 2. / 180. * np.pi)
+            ax.set_aspect(1. / coslat)
+            fig.canvas.draw()
+
+    # annotate the axis with node IDs if annotate=True
+    if annotate:
+        for node, data in G.nodes(data=True):
+            ax.annotate(node, xy=(data['x'], data['y']))
+
+    # save and show the figure as specified
+    fig, ax = save_and_show(fig, ax, save, show, close, filename, file_format, dpi, axis_off)
+    return fig, ax
 
 def plot_graph(G, bbox=None, fig_height=6, fig_width=None, margin=0.02,
                axis_off=True, equal_aspect=False, bgcolor='w', show=True,
@@ -485,6 +665,148 @@ def node_list_to_coordinate_lines(G, node_list, use_geom=True):
             lines.append(line)
     return lines
 
+def plot_graph_route_clustered(G, route, bbox=None, fig_height=6, fig_width=None,
+                     margin=0.02, bgcolor='w', axis_off=True, show=True,
+                     save=False, close=True, file_format='png', filename='temp',
+                     dpi=300, annotate=False, node_color='#999999',
+                     node_size=15, node_alpha=1, node_edgecolor='none',
+                     node_zorder=1, edge_color='#999999', edge_linewidth=1,
+                     edge_alpha=1, use_geom=True, origin_point=None,
+                     destination_point=None, route_color='r', route_linewidth=4,
+                     route_alpha=0.5, orig_dest_node_alpha=0.5,
+                     orig_dest_node_size=100, orig_dest_node_color='r',
+                     orig_dest_point_color='b', title=None, rsu_hash=None,
+                     network_connections=None, rsu_locations=None, node_label_size=12,
+                     node_label_color='w', color_dict=None):
+    """
+    Plot a route along a networkx spatial graph.
+
+    Parameters
+    ----------
+    G : networkx multidigraph
+    route : list
+        the route as a list of nodes
+    bbox : tuple
+        bounding box as north,south,east,west - if None will calculate from
+        spatial extents of data. if passing a bbox, you probably also want to
+        pass margin=0 to constrain it.
+    fig_height : int
+        matplotlib figure height in inches
+    fig_width : int
+        matplotlib figure width in inches
+    margin : float
+        relative margin around the figure
+    axis_off : bool
+        if True turn off the matplotlib axis
+    bgcolor : string
+        the background color of the figure and axis
+    show : bool
+        if True, show the figure
+    save : bool
+        if True, save the figure as an image file to disk
+    close : bool
+        close the figure (only if show equals False) to prevent display
+    file_format : string
+        the format of the file to save (e.g., 'jpg', 'png', 'svg')
+    filename : string
+        the name of the file if saving
+    dpi : int
+        the resolution of the image file if saving
+    annotate : bool
+        if True, annotate the nodes in the figure
+    node_color : string
+        the color of the nodes
+    node_size : int
+        the size of the nodes
+    node_alpha : float
+        the opacity of the nodes
+    node_edgecolor : string
+        the color of the node's marker's border
+    node_zorder : int
+        zorder to plot nodes, edges are always 2, so make node_zorder 1 to plot
+        nodes beneath them or 3 to plot nodes atop them
+    edge_color : string
+        the color of the edges' lines
+    edge_linewidth : float
+        the width of the edges' lines
+    edge_alpha : float
+        the opacity of the edges' lines
+    use_geom : bool
+        if True, use the spatial geometry attribute of the edges to draw
+        geographically accurate edges, rather than just lines straight from node
+        to node
+    origin_point : tuple
+        optional, an origin (lat, lon) point to plot instead of the origin node
+    destination_point : tuple
+        optional, a destination (lat, lon) point to plot instead of the
+        destination node
+    route_color : string
+        the color of the route
+    route_linewidth : int
+        the width of the route line
+    route_alpha : float
+        the opacity of the route line
+    orig_dest_node_alpha : float
+        the opacity of the origin and destination nodes
+    orig_dest_node_size : int
+        the size of the origin and destination nodes
+    orig_dest_node_color : string
+        the color of the origin and destination nodes
+    orig_dest_point_color : string
+        the color of the origin and destination points if being plotted instead
+        of nodes
+
+    Returns
+    -------
+    fig, ax : tuple
+    """
+
+    # plot the graph but not the route
+    fig, ax = plot_graph_by_clusters(G, bbox=bbox, fig_height=fig_height, fig_width=fig_width,
+                         margin=margin, axis_off=axis_off, bgcolor=bgcolor,
+                         show=False, save=False, close=False, filename=filename,
+                         dpi=dpi, annotate=annotate, node_color=node_color,
+                         node_size=node_size, node_alpha=node_alpha,
+                         node_edgecolor=node_edgecolor, node_zorder=node_zorder,
+                         edge_color=edge_color, edge_linewidth=edge_linewidth,
+                         edge_alpha=edge_alpha, use_geom=use_geom,
+                         rsu_hash=rsu_hash, network_connections=network_connections, rsu_locations=rsu_locations,
+                         node_label_size=node_label_size, node_label_color=node_label_color, color_dict=color_dict)
+
+    # the origin and destination nodes are the first and last nodes in the route
+    origin_node = route[0]
+    destination_node = route[-1]
+
+    if origin_point is None or destination_point is None:
+        # if caller didn't pass points, use the first and last node in route as
+        # origin/destination
+        origin_destination_lats = (G.nodes[origin_node]['y'], G.nodes[destination_node]['y'])
+        origin_destination_lons = (G.nodes[origin_node]['x'], G.nodes[destination_node]['x'])
+    else:
+        # otherwise, use the passed points as origin/destination
+        origin_destination_lats = (origin_point[0], destination_point[0])
+        origin_destination_lons = (origin_point[1], destination_point[1])
+        orig_dest_node_color = orig_dest_point_color
+
+    # scatter the origin and destination points
+    ax.scatter(origin_destination_lons, origin_destination_lats, s=orig_dest_node_size,
+               c=orig_dest_node_color, alpha=orig_dest_node_alpha, edgecolor=node_edgecolor, zorder=4)
+
+    # Add title
+    if title is not None:
+        ax.set_title(title)
+
+    # plot the route lines
+    lines = node_list_to_coordinate_lines(G, route, use_geom)
+
+    # add the lines to the axis as a linecollection
+    lc = LineCollection(lines, colors=route_color, linewidths=route_linewidth, alpha=route_alpha, zorder=3)
+    ax.add_collection(lc)
+
+    # save and show the figure as specified
+    fig, ax = save_and_show(fig, ax, save, show, close, filename, file_format, dpi, axis_off)
+    return fig, ax
+
 def plot_graph_route(G, route, bbox=None, fig_height=6, fig_width=None,
                      margin=0.02, bgcolor='w', axis_off=True, show=True,
                      save=False, close=True, file_format='png', filename='temp',
@@ -495,7 +817,7 @@ def plot_graph_route(G, route, bbox=None, fig_height=6, fig_width=None,
                      destination_point=None, route_color='r', route_linewidth=4,
                      route_alpha=0.5, orig_dest_node_alpha=0.5,
                      orig_dest_node_size=100, orig_dest_node_color='r',
-                     orig_dest_point_color='b'):
+                     orig_dest_point_color='b', title=None):
     """
     Plot a route along a networkx spatial graph.
 
@@ -607,6 +929,10 @@ def plot_graph_route(G, route, bbox=None, fig_height=6, fig_width=None,
     # scatter the origin and destination points
     ax.scatter(origin_destination_lons, origin_destination_lats, s=orig_dest_node_size,
                c=orig_dest_node_color, alpha=orig_dest_node_alpha, edgecolor=node_edgecolor, zorder=4)
+
+    # Add title
+    if title is not None:
+        ax.set_title(title)
 
     # plot the route lines
     lines = node_list_to_coordinate_lines(G, route, use_geom)
