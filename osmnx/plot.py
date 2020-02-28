@@ -647,7 +647,13 @@ def node_list_to_coordinate_lines(G, node_list, use_geom=True):
     lines = []
     for u, v in edge_nodes:
         # if there are parallel edges, select the shortest in length
-        data = min(G.get_edge_data(u, v).values(), key=lambda x: x['length'])
+        if len(list(G.get_edge_data(u, v).values())) == 1 and not list(G.get_edge_data(u, v).values())[0]:
+            # The network graph has a lot of wholes literally and figuratively. 
+            # This is just to stop the program from stopping when it is simply missing a route
+            # Technically this means it failed, but it failed not because of task allocation, but because of faulty network graphs
+            continue
+        else:
+            data = min(G.get_edge_data(u, v).values(), key=lambda x: x['length'])
 
         # if it has a geometry attribute (ie, a list of line segments)
         if 'geometry' in data and use_geom:
